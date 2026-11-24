@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RadioLounge 27 Premium</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;padding:3vh 4vw;
+ background:linear-gradient(135deg,#101827,#080b12);
+ color:#fff;font-family:Arial,sans-serif;
+ min-height:100vh;
+}
+header{display:flex;align-items:center;justify-content:space-between}
+h1{font-size:36px;margin:0}
+.subtitle{color:#9caac4;font-size:17px}
+nav,footer{display:flex;gap:12px;margin:18px 0}
+button{
+ color:white;background:#222b3e;
+ border:3px solid transparent;border-radius:15px;
+ padding:12px 22px;font-size:20px;cursor:pointer
+}
+button:focus{
+ outline:none;border-color:#98baff;
+ background:#3c527b;
+}
+button.active{background:#5155a8}
+#now{
+ display:flex;align-items:center;
+ background:#1d293e;border-radius:20px;
+ padding:18px;gap:20px;margin-bottom:20px
+}
+#nowInfo{flex:1}
+#stationName{font-size:30px;font-weight:bold}
+#status{color:#a5b9dc;margin-top:7px}
+#grid{
+ display:grid;
+ grid-template-columns:repeat(4,minmax(0,1fr));
+ gap:14px;
+}
+.station{
+ height:15vh;min-height:100px;
+ display:flex;flex-direction:column;
+ align-items:center;justify-content:center;
+ padding:9px;overflow:hidden;
+}
+.station img{
+ width:58px;height:58px;object-fit:contain;
+ margin-bottom:7px
+}
+.station span{
+ font-size:17px;max-width:100%;
+ white-space:nowrap;overflow:hidden;
+ text-overflow:ellipsis;
+}
+.station.playing{background:#353f70}
+.logoFallback{font-size:34px;margin-bottom:7px}
+#page{flex:1;text-align:center;align-self:center}
+footer{align-items:center}
+small{color:#9daac0}
+</style>
+</head>
+<body>
+<header>
+ <div>
+  <h1>RadioLounge</h1>
+  <div class="subtitle">PREMIUM 27</div>
+ </div>
+ <small>LIVE RADIO</small>
+</header>
+<nav>
+ <button id="NL">Nederland</button>
+ <button id="DE">Deutschland</button>
+ <button id="FAV">Favorieten</button>
+</nav>
+<section id="now">
+ <div id="nowInfo">
+  <div id="stationName">Welkom bij RadioLounge</div>
+  <div id="status">Selecteer een radiozender</div>
+ </div>
+ <button id="favorite">Favoriet +</button>
+ <button id="stop">Stop</button>
+</section>
+<main id="grid"></main>
+<footer>
+ <button id="prev">Vorige</button>
+ <div id="page"></div>
+ <button id="next">Volgende</button>
+</footer>
+<small>Pijltjestoetsen: navigeren | OK: selecteren</small>
+<audio id="audio" preload="none"></audio>
+<script>
+const $=id=>document.getElementById(id);
+const audio=$("audio");
+let data={NL:[],DE:[]};
+let country="NL",page=0,current=null;
+let retry=0,timer=null,manualStop=true;
+let favorites=[];
+try{
+ favorites=JSON.parse(
+  localStorage.getItem("rl27_favorites")||"[]"
+ );
+}catch(e){}
+
+function save(){
+ try{
+  localStorage.setItem(
+   "rl27_favorites",JSON.stringify(favorites)
+  );
+ }catch(e){}
+}
+function list(){
+ if(country==="FAV"){
+  return data.NL.concat(data.DE).filter(
+   s=>favorites.includes(s.id)
+  );
+ }
+ return data[country]||[];
+}
+function render(){
+ const stations=list();
+ const max=Math.max(1,Math.ceil(stations.length/12));
+ page=Math.max(0,Math.min(page,max-1));
+ $("grid").textContent="";
+ ["NL","DE","FAV"].forEach(
+  c=>$(c).classList.toggle("active",c===country)
+ );
+ stations.slice(page*12,page*12+12).forEach(s=>{
+  const b=document.createElement("button");
+  b.className="station";
+  if(current&&current.id===s.id)
+   b.classList.add("playing");
+  const logo=document.createElement("img");
+  const fallback=document.createElement("div");
+  fallback.className="logoFallback";
+  fallback.textContent="♫";
+  fallback.style.display="none";
+  logo.onerror=()=>{
+   logo.style.display="none";
+   fallback.style.display="block";
+  };
+  if(s.logo){logo.src=s.logo;}
+  else{
+   logo.style.display="none";
+   fallback.style.display="block";
+  }
+  const name=document.createElement("span");
+  name.textContent=(favorites.includes(s.id)?"★ ":"")+s.name;
+  b.appendChild(logo);
+  b.appendChild(fallback);
+  b.appendChild(name);
+  b.onclick=()=>play(s);
+  $("grid").appendChild(b);
+ });
+ $("page").textContent=
+  stations.length+" zenders | "+(page+1)+" / "+max;
+}
+function updateFavorite(){
+ $("favorite").textContent=
+  current&&favorites.includes(current.id)
+  ?"Favoriet −":"Favoriet +";
+}
+function play(s){
+ clearTimeout(timer);
+ current=s;
+ retry=0;
+ manualStop=false;
+ $("stationName").textContent=s.name;
+ updateFavorite();
+ startStream();
+}
+function startStream(){
+ if(!current||manualStop)return;
+ $("status").textContent="Verbinden...";
+ audio.src=current.url;
+ audio.play().catch(()=>{
+  if(!manualStop)scheduleRetry();
+ });
+}
+function scheduleRetry(){
+ if(!current||manualStop||timer)return;
+ if(retry>=3){
+  $("status").textContent="Stream niet beschikbaar";
+  return;
+ }
+ retry++;
+ $("status").textContent="Opnieuw verbinden...";
+ timer=setTimeout(()=>{
+  timer=null;
+  startStream();
+ },4000);
+}
+audio.addEventListener("playing",()=>{
+ clearTimeout(timer);timer=null;retry=0;
+ if(current)$("status").textContent=
+  "LIVE · "+current.country+
+  (current.bitrate?" · "+current.bitrate+" kbps":"");
+});
+audio.addEventListener("error",scheduleRetry);
+audio.addEventListener("waiting",()=>{
+ if(!manualStop){
+  $("status").textContent="Bufferen...";
+  if(!timer){
+   timer=setTimeout(()=>{
+    timer=null;scheduleRetry();
+   },12000);
+  }
+ }
+});
+$("stop").onclick=()=>{
+ manualStop=true;
+ clearTimeout(timer);timer=null;
+ audio.pause();
+ audio.removeAttribute("src");
+ audio.load();
+ $("status").textContent="Gestopt";
+};
+$("favorite").onclick=()=>{
+ if(!current)return;
+ if(favorites.includes(current.id)){
+  favorites=favorites.filter(id=>id!==current.id);
+ }else favorites.push(current.id);
+ save();updateFavorite();render();
+};
+["NL","DE","FAV"].forEach(c=>{
+ $(c).onclick=()=>{
+  country=c;page=0;render();
+ };
+});
+$("prev").onclick=()=>{page--;render()};
+$("next").onclick=()=>{page++;render()};
+
+document.addEventListener("keydown",e=>{
+ const dirs={
+  ArrowLeft:[-1,0],ArrowRight:[1,0],
+  ArrowUp:[0,-1],ArrowDown:[0,1]
+ };
+ const dir=dirs[e.key];
+ if(!dir)return;
+ e.preventDefault();
+ const buttons=Array.from(document.querySelectorAll("button"));
+ const active=document.activeElement;
+ if(!buttons.includes(active)){
+  buttons[0].focus();return;
+ }
+ const r=active.getBoundingClientRect();
+ const x=r.left+r.width/2,y=r.top+r.height/2;
+ let best=null,score=Infinity;
+ buttons.forEach(b=>{
+  if(b===active)return;
+  const t=b.getBoundingClientRect();
+  const dx=t.left+t.width/2-x;
+  const dy=t.top+t.height/2-y;
+  const along=dx*dir[0]+dy*dir[1];
+  if(along<5)return;
+  const cross=Math.abs(dx*dir[1]+dy*dir[0]);
+  const distance=along+cross*3;
+  if(distance<score){score=distance;best=b}
+ });
+ if(best)best.focus();
+});
+
+fetch("stations.json").then(r=>r.json()).then(d=>{
+ data=d;render();$("NL").focus();
+}).catch(()=>{
+ $("status").textContent="Zenderlijst niet beschikbaar";
+});
+</script>
+</body>
+</html>
